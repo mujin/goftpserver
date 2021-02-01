@@ -153,6 +153,7 @@ func optsWithDefaults(opts *Options) *Options {
 
 	newOpts.PublicIP = opts.PublicIP
 	newOpts.PassivePorts = opts.PassivePorts
+	newOpts.PassiveIP = opts.PassiveIP
 	newOpts.RateLimit = opts.RateLimit
 
 	return &newOpts
