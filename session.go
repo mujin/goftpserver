@@ -73,7 +73,9 @@ func (sess *Session) Options() *Options {
 
 func (sess *Session) passiveListenIP() string {
 	var listenIP string
-	if len(sess.PublicIP()) > 0 {
+	if sess.server.PassiveIP != nil {
+		listenIP = sess.server.PassiveIP(sess.conn)
+	} else if len(sess.PublicIP()) > 0 {
 		listenIP = sess.PublicIP()
 	} else {
 		listenIP = sess.conn.LocalAddr().(*net.TCPAddr).IP.String()

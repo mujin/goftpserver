@@ -48,6 +48,9 @@ type Options struct {
 	// Passive ports
 	PassivePorts string
 
+	// Function to get public ip for passive connection depending on the client connection
+	PassiveIP func(net.Conn) string
+
 	// The port that the FTP should listen on. Optional, defaults to 3000. In
 	// a production environment you will probably want to change this to 21.
 	Port int
