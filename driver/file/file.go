@@ -50,7 +50,8 @@ func (driver *Driver) ListDir(ctx *server.Context, path string, callback func(os
 	basepath := driver.realPath(path)
 	return filepath.Walk(basepath, func(f string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			// ignore any permission errors during walk
+			return nil
 		}
 		rPath, _ := filepath.Rel(basepath, f)
 		if rPath == info.Name() {
