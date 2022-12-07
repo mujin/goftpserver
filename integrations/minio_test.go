@@ -5,6 +5,7 @@
 package integrations
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -46,11 +47,18 @@ func TestDriver(t *testing.T) {
 	}
 
 	runServer(t, opt, nil, func() {
-		// Give server 0.5 seconds to get to the listening state
-		timeout := time.NewTimer(time.Millisecond * 500)
+		tries := 5
 		for {
-			f, err := ftp.Connect("localhost:2120")
-			if err != nil && len(timeout.C) == 0 { // Retry errors
+			f, err := ftp.Connect(fmt.Sprintf("localhost:%d", opt.Port))
+			if err != nil {
+				fmt.Printf("Connect error: %v\n", err)
+				// Give server 0.5 seconds to get to the listening state
+				time.Sleep(500 * time.Millisecond)
+				tries--
+				if tries == 0 {
+					assert.True(t, false, "Cannot connnect ftp server")
+					return
+				}
 				continue
 			}
 
