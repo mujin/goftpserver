@@ -213,6 +213,7 @@ func (sess *Session) receiveLine(line string) {
 		Timestamp:     start,
 		RemoteAddress: sess.RemoteAddr().String(),
 		User:          sess.user,
+		SessionID:     sess.id,
 		Directory:     sess.curDir,
 		Method:        theCmd,
 		Name:          param,
@@ -230,7 +231,7 @@ func (sess *Session) receiveLine(line string) {
 	}
 
 	if cmdObj.RequireParam() && param == "" {
-		accessLog.Status = "action aborted, required param missing"
+		accessLog.Status = "Action aborted, required param missing"
 		accessLog.StatusCode = 553
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else if sess.server.Options.ForceTLS && !sess.tls && !(cmdObj == commands["AUTH"] && param == "TLS") {
@@ -238,7 +239,7 @@ func (sess *Session) receiveLine(line string) {
 		accessLog.StatusCode = 534
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else if cmdObj.RequireAuth() && sess.user == "" {
-		accessLog.Status = "not logged in"
+		accessLog.Status = "Not logged in"
 		accessLog.StatusCode = 530
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
@@ -248,7 +249,6 @@ func (sess *Session) receiveLine(line string) {
 	}
 
 	if sess.server.Report != nil {
-		accessLog.SessionID = sess.id
 		accessLog.Elapsed = time.Since(start)
 		sess.server.Report(&accessLog)
 	}
@@ -326,7 +326,7 @@ func (sess *Session) sendOutofbandData(data []byte, accessLog *AccessLog) {
 		sess.dataConn = nil
 	}
 
-	accessLog.Status = "Closing data connection, sent " + strconv.Itoa(bytes) + " bytes"
+	accessLog.Status = fmt.Sprintf("Closing data connection, sent %d bytes", bytes)
 	accessLog.StatusCode = 226
 	accessLog.Size = len(data)
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
@@ -340,7 +340,7 @@ func (sess *Session) sendOutofBandDataWriter(data io.ReadCloser, accessLog *Acce
 		return err
 	}
 
-	accessLog.Status = "Closing data connection, sent " + strconv.Itoa(int(bytes)) + " bytes"
+	accessLog.Status = fmt.Sprintf("Closing data connection, sent %d bytes", bytes)
 	accessLog.StatusCode = 226
 	accessLog.Size = int(bytes)
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)

@@ -149,7 +149,7 @@ func (cmd commandAppe) Execute(sess *Session, param string, accessLog *AccessLog
 		accessLog.StatusCode = 226
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
-		accessLog.Status = fmt.Sprint("error during transfer: ", err)
+		accessLog.Status = fmt.Sprintf("Error during transfer: %s", err)
 		accessLog.StatusCode = 450
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
@@ -192,14 +192,8 @@ func (cmd commandOpts) RequireAuth() bool {
 
 func (cmd commandOpts) Execute(sess *Session, param string, accessLog *AccessLog) {
 	parts := strings.Fields(param)
-	if len(parts) != 2 {
-		accessLog.Status = "Unknow params"
-		accessLog.StatusCode = 550
-		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
-		return
-	}
-	if strings.ToUpper(parts[0]) != "UTF8" {
-		accessLog.Status = "Unknow params"
+	if len(parts) != 2 || strings.ToUpper(parts[0]) != "UTF8" {
+		accessLog.Status = "Unknown params"
 		accessLog.StatusCode = 550
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
@@ -283,15 +277,9 @@ func (cmd commandCwd) Execute(sess *Session, param string, accessLog *AccessLog)
 		Data:  make(map[string]interface{}),
 	}
 	info, err := sess.server.Driver.Stat(&ctx, path)
-	if err != nil {
+	if err != nil || !info.IsDir() {
 		sess.logf("%v", err)
-		accessLog.Status = fmt.Sprint("Directory change to ", path, " failed.")
-		accessLog.StatusCode = 550
-		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
-		return
-	}
-	if !info.IsDir() {
-		accessLog.Status = fmt.Sprint("Directory change to ", path, " is a file")
+		accessLog.Status = fmt.Sprintf("Directory change to %q failed: %s", path, err)
 		accessLog.StatusCode = 550
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
@@ -301,12 +289,12 @@ func (cmd commandCwd) Execute(sess *Session, param string, accessLog *AccessLog)
 	err = sess.changeCurDir(path)
 	sess.server.notifiers.AfterCurDirChanged(&ctx, sess.curDir, path, err)
 	if err == nil {
-		accessLog.Status = fmt.Sprint("Directory changed to ", path)
+		accessLog.Status = fmt.Sprintf("Directory changed to %s", path)
 		accessLog.StatusCode = 250
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
 		sess.logf("%v", err)
-		accessLog.Status = fmt.Sprint("Directory change to ", path, " failed.")
+		accessLog.Status = fmt.Sprintf("Directory change to %q failed: %s", path, err)
 		accessLog.StatusCode = 550
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
@@ -345,7 +333,7 @@ func (cmd commandDele) Execute(sess *Session, param string, accessLog *AccessLog
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
 		sess.logf("%v", err)
-		accessLog.Status = "File delete failed."
+		accessLog.Status = fmt.Sprintf("File delete failed: %s", err)
 		accessLog.StatusCode = 550
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
@@ -389,14 +377,14 @@ func (cmd commandEprt) Execute(sess *Session, param string, accessLog *AccessLog
 	}
 	socket, err := newActiveSocket(sess, host, port)
 	if err != nil {
-		accessLog.Status = "Data connection failed"
+		accessLog.Status = fmt.Sprintf("Data connection failed: %s", err)
 		accessLog.StatusCode = 425
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	sess.dataConn = socket
 
-	accessLog.Status = "Connection established (" + strconv.Itoa(port) + ")"
+	accessLog.Status = fmt.Sprintf("Connection established (%d)", port)
 	accessLog.StatusCode = 200
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
@@ -467,14 +455,14 @@ func (cmd commandLprt) Execute(sess *Session, param string, accessLog *AccessLog
 
 	socket, err := newActiveSocket(sess, host, port)
 	if err != nil {
-		accessLog.Status = "Data connection failed"
+		accessLog.Status = fmt.Sprintf("Data connection failed: %s", err)
 		accessLog.StatusCode = 425
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	sess.dataConn = socket
 
-	accessLog.Status = "Connection established (" + strconv.Itoa(port) + ")"
+	accessLog.Status = fmt.Sprintf("Connection established (%d)", port)
 	accessLog.StatusCode = 200
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
@@ -500,7 +488,7 @@ func (cmd commandEpsv) Execute(sess *Session, param string, accessLog *AccessLog
 	socket, err := sess.newPassiveSocket()
 	if err != nil {
 		sess.log(err)
-		accessLog.Status = "Data connection failed"
+		accessLog.Status = fmt.Sprintf("Data connection failed: %s", err)
 		accessLog.StatusCode = 425
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
@@ -658,7 +646,7 @@ func (cmd commandNlst) Execute(sess *Session, param string, accessLog *AccessLog
 		return
 	}
 	if !info.IsDir() {
-		accessLog.Status = param + " is not a directory"
+		accessLog.Status = fmt.Sprintf("%q is not a directory", param)
 		accessLog.StatusCode = 550
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
@@ -768,7 +756,7 @@ func (cmd commandMkd) Execute(sess *Session, param string, accessLog *AccessLog)
 		accessLog.Status = "Directory created"
 		accessLog.StatusCode = 257
 	} else {
-		accessLog.Status = fmt.Sprint("Action not taken: ", err)
+		accessLog.Status = fmt.Sprintf("Action not taken: %s", err)
 		accessLog.StatusCode = 550
 	}
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
@@ -908,7 +896,7 @@ func (cmd commandPasv) Execute(sess *Session, param string, accessLog *AccessLog
 
 	socket, err := sess.newPassiveSocket()
 	if err != nil {
-		accessLog.Status = "Data connection failed"
+		accessLog.Status = fmt.Sprintf("Data connection failed: %s", err)
 		accessLog.StatusCode = 425
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
@@ -920,7 +908,7 @@ func (cmd commandPasv) Execute(sess *Session, param string, accessLog *AccessLog
 	quads := strings.Split(listenIP, ".")
 	target := fmt.Sprintf("(%s,%s,%s,%s,%d,%d)", quads[0], quads[1], quads[2], quads[3], p1, p2)
 
-	accessLog.Status = "Entering Passive Mode " + target
+	accessLog.Status = fmt.Sprintf("Entering Passive Mode %q", target)
 	accessLog.StatusCode = 227
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
@@ -957,7 +945,7 @@ func (cmd commandPort) Execute(sess *Session, param string, accessLog *AccessLog
 		return
 	}
 	sess.dataConn = socket
-	accessLog.Status = "Connection established (" + strconv.Itoa(port) + ")"
+	accessLog.Status = fmt.Sprintf("Connection established (%d)", port)
 	accessLog.StatusCode = 200
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
@@ -980,7 +968,7 @@ func (cmd commandPwd) RequireAuth() bool {
 }
 
 func (cmd commandPwd) Execute(sess *Session, param string, accessLog *AccessLog) {
-	accessLog.Status = "\"" + sess.curDir + "\" is the current directory"
+	accessLog.Status = fmt.Sprintf("%q is the current directory", sess.curDir)
 	accessLog.StatusCode = 257
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
@@ -1053,7 +1041,7 @@ func (cmd commandRetr) Execute(sess *Session, param string, accessLog *AccessLog
 		err = sess.sendOutofBandDataWriter(data, accessLog)
 		sess.server.notifiers.AfterFileDownloaded(&ctx, path, size, err)
 		if err != nil {
-			accessLog.Status = "Error reading file"
+			accessLog.Status = fmt.Sprintf("Error reading file: %s", err)
 			accessLog.StatusCode = 551
 			sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		}
@@ -1089,7 +1077,7 @@ func (cmd commandRest) Execute(sess *Session, param string, accessLog *AccessLog
 		return
 	}
 
-	accessLog.Status = fmt.Sprint("Start transfer from ", sess.lastFilePos)
+	accessLog.Status = fmt.Sprintf("Start transfer from %d", sess.lastFilePos)
 	accessLog.StatusCode = 350
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
@@ -1119,7 +1107,7 @@ func (cmd commandRnfr) Execute(sess *Session, param string, accessLog *AccessLog
 		Param: param,
 		Data:  make(map[string]interface{}),
 	}, p); err != nil {
-		accessLog.Status = fmt.Sprint("Action not taken: ", err)
+		accessLog.Status = fmt.Sprintf("Action not taken: %s", err)
 		accessLog.StatusCode = 550
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
@@ -1162,7 +1150,7 @@ func (cmd commandRnto) Execute(sess *Session, param string, accessLog *AccessLog
 		accessLog.Status = "File renamed"
 		accessLog.StatusCode = 250
 	} else {
-		accessLog.Status = fmt.Sprint("Action not taken: ", err)
+		accessLog.Status = fmt.Sprintf("Action not taken: %s", err)
 		accessLog.StatusCode = 550
 	}
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
@@ -1235,7 +1223,7 @@ func executeRmd(cmd string, sess *Session, param string, accessLog *AccessLog) {
 		accessLog.Status = "Directory deleted"
 		accessLog.StatusCode = 250
 	} else {
-		accessLog.Status = fmt.Sprint("Directory delete failed: ", err)
+		accessLog.Status = fmt.Sprintf("Directory delete failed: %s", err)
 		accessLog.StatusCode = 550
 	}
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
@@ -1509,7 +1497,7 @@ func (cmd commandSize) Execute(sess *Session, param string, accessLog *AccessLog
 	}, path)
 	if err != nil {
 		log.Printf("Size: error(%s)", err)
-		accessLog.Status = fmt.Sprintf("path %s not found", param)
+		accessLog.Status = fmt.Sprintf("Path %q not found", param)
 		accessLog.StatusCode = 450
 	} else {
 		accessLog.Status = strconv.Itoa(int(stat.Size()))
@@ -1563,7 +1551,7 @@ func (cmd commandStat) Execute(sess *Session, param string, accessLog *AccessLog
 	stat, err := sess.server.Driver.Stat(&ctx, path)
 	if err != nil {
 		log.Printf("Size: error(%s)", err)
-		accessLog.Status = fmt.Sprintf("path %s not found", path)
+		accessLog.Status = fmt.Sprintf("Path %q not found", path)
 		accessLog.StatusCode = 450
 		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
@@ -1646,7 +1634,7 @@ func (cmd commandStor) Execute(sess *Session, param string, accessLog *AccessLog
 		accessLog.Status = fmt.Sprintf("OK, received %d bytes", size)
 		accessLog.StatusCode = 226
 	} else {
-		accessLog.Status = fmt.Sprint("error during transfer: ", err)
+		accessLog.Status = fmt.Sprintf("Error during transfer: %s", err)
 		accessLog.StatusCode = 450
 	}
 	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
