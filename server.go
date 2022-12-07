@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"goftp.io/server/v2/ratelimit"
 )
@@ -19,6 +20,42 @@ import (
 var (
 	version = "2.0beta"
 )
+
+// The access log contains the summary of a user request and the returned response.
+type AccessLog struct {
+	// The timestamp when the request was received.
+	Timestamp time.Time `json:"timestamp,omitempty"`
+
+	// The remote address that performed the request
+	RemoteAddress string `json:"remoteAddress,omitempty"`
+
+	// The user that performed the request
+	User string `json:"user,omitempty"`
+
+	// The unique session id that the request belongs to.
+	SessionID string `json:"sessionId,omitempty"`
+
+	// The current directory used to perform the request.
+	Directory string `json:"directory,omitempty"`
+
+	// Name of the operation performed with the request.
+	Method string `json:"method,omitempty"`
+
+	// Name of the resource affected by the request.
+	Name string `json:"name,omitempty"`
+
+	// The response status.
+	Status string `json:"status,omitempty"`
+
+	// The response status code.
+	StatusCode int `json:"statusCode,omitempty"`
+
+	// The response size in bytes
+	Size int `json:"size,omitempty"`
+
+	// The total amount of time spent serving this request.
+	Elapsed time.Duration `json:"elapsed,omitempty"`
+}
 
 // Options contains parameters for server.NewServer()
 type Options struct {
@@ -71,6 +108,9 @@ type Options struct {
 	ForceTLS bool
 
 	WelcomeMessage string
+
+	// Function to report access logs to fuse.
+	Report func(accessLog *AccessLog)
 
 	// A logger implementation, if nil the StdLogger is used
 	Logger Logger
@@ -146,6 +186,8 @@ func optsWithDefaults(opts *Options) *Options {
 	} else {
 		newOpts.Commands = opts.Commands
 	}
+
+	newOpts.Report = opts.Report
 
 	newOpts.Perm = opts.Perm
 	newOpts.TLS = opts.TLS

@@ -21,7 +21,7 @@ type Command interface {
 	IsExtend() bool
 	RequireParam() bool
 	RequireAuth() bool
-	Execute(*Session, string)
+	Execute(*Session, string, *AccessLog)
 }
 
 var (
@@ -100,8 +100,10 @@ func (cmd commandAllo) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandAllo) Execute(sess *Session, param string) {
-	sess.writeMessage(202, "Obsolete")
+func (cmd commandAllo) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Obsolete"
+	accessLog.StatusCode = 202
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandAppe responds to the APPE FTP command. It allows the user to upload a
@@ -120,9 +122,11 @@ func (cmd commandAppe) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandAppe) Execute(sess *Session, param string) {
+func (cmd commandAppe) Execute(sess *Session, param string, accessLog *AccessLog) {
 	targetPath := sess.buildPath(param)
-	sess.writeMessage(150, "Data transfer starting")
+	accessLog.Status = "Data transfer starting"
+	accessLog.StatusCode = 150
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 
 	if sess.preCommand != "REST" {
 		sess.lastFilePos = -1
@@ -141,10 +145,13 @@ func (cmd commandAppe) Execute(sess *Session, param string) {
 	size, err := sess.server.Driver.PutFile(&ctx, targetPath, sess.dataConn, sess.lastFilePos)
 	sess.server.notifiers.AfterFilePut(&ctx, targetPath, size, err)
 	if err == nil {
-		msg := fmt.Sprintf("OK, received %d bytes", size)
-		sess.writeMessage(226, msg)
+		accessLog.Status = fmt.Sprintf("OK, received %d bytes", size)
+		accessLog.StatusCode = 226
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
-		sess.writeMessage(450, fmt.Sprint("error during transfer: ", err))
+		accessLog.Status = fmt.Sprint("error during transfer: ", err)
+		accessLog.StatusCode = 450
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
 }
 
@@ -162,9 +169,11 @@ func (cmd commandCLNT) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandCLNT) Execute(sess *Session, param string) {
+func (cmd commandCLNT) Execute(sess *Session, param string, accessLog *AccessLog) {
 	sess.clientSoft = param
-	sess.writeMessage(200, "OK")
+	accessLog.Status = "OK"
+	accessLog.StatusCode = 200
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandOpts struct{}
@@ -181,21 +190,29 @@ func (cmd commandOpts) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandOpts) Execute(sess *Session, param string) {
+func (cmd commandOpts) Execute(sess *Session, param string, accessLog *AccessLog) {
 	parts := strings.Fields(param)
 	if len(parts) != 2 {
-		sess.writeMessage(550, "Unknow params")
+		accessLog.Status = "Unknow params"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	if strings.ToUpper(parts[0]) != "UTF8" {
-		sess.writeMessage(550, "Unknow params")
+		accessLog.Status = "Unknow params"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
 	if strings.ToUpper(parts[1]) == "ON" {
-		sess.writeMessage(200, "UTF8 mode enabled")
+		accessLog.Status = "UTF8 mode enabled"
+		accessLog.StatusCode = 200
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
-		sess.writeMessage(550, "Unsupported non-utf8 mode")
+		accessLog.Status = "Unsupported non-utf8 mode"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
 }
 
@@ -213,8 +230,10 @@ func (cmd commandFeat) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandFeat) Execute(sess *Session, param string) {
-	sess.writeMessageMultiline(211, sess.server.feats)
+func (cmd commandFeat) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = sess.server.feats
+	accessLog.StatusCode = 211
+	sess.writeMessageMultiline(accessLog.StatusCode, accessLog.Status)
 }
 
 // cmdCdup responds to the CDUP FTP command.
@@ -234,9 +253,9 @@ func (cmd commandCdup) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCdup) Execute(sess *Session, param string) {
+func (cmd commandCdup) Execute(sess *Session, param string, accessLog *AccessLog) {
 	otherCmd := &commandCwd{}
-	otherCmd.Execute(sess, "..")
+	otherCmd.Execute(sess, "..", accessLog)
 }
 
 // commandCwd responds to the CWD FTP command. It allows the client to change the
@@ -255,7 +274,7 @@ func (cmd commandCwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCwd) Execute(sess *Session, param string) {
+func (cmd commandCwd) Execute(sess *Session, param string, accessLog *AccessLog) {
 	path := sess.buildPath(param)
 	var ctx = Context{
 		Sess:  sess,
@@ -266,11 +285,15 @@ func (cmd commandCwd) Execute(sess *Session, param string) {
 	info, err := sess.server.Driver.Stat(&ctx, path)
 	if err != nil {
 		sess.logf("%v", err)
-		sess.writeMessage(550, fmt.Sprint("Directory change to ", path, " failed."))
+		accessLog.Status = fmt.Sprint("Directory change to ", path, " failed.")
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	if !info.IsDir() {
-		sess.writeMessage(550, fmt.Sprint("Directory change to ", path, " is a file"))
+		accessLog.Status = fmt.Sprint("Directory change to ", path, " is a file")
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
@@ -278,10 +301,14 @@ func (cmd commandCwd) Execute(sess *Session, param string) {
 	err = sess.changeCurDir(path)
 	sess.server.notifiers.AfterCurDirChanged(&ctx, sess.curDir, path, err)
 	if err == nil {
-		sess.writeMessage(250, "Directory changed to "+path)
+		accessLog.Status = fmt.Sprint("Directory changed to ", path)
+		accessLog.StatusCode = 250
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
 		sess.logf("%v", err)
-		sess.writeMessage(550, fmt.Sprint("Directory change to ", path, " failed."))
+		accessLog.Status = fmt.Sprint("Directory change to ", path, " failed.")
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
 }
 
@@ -301,7 +328,7 @@ func (cmd commandDele) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandDele) Execute(sess *Session, param string) {
+func (cmd commandDele) Execute(sess *Session, param string, accessLog *AccessLog) {
 	path := sess.buildPath(param)
 	var ctx = Context{
 		Sess:  sess,
@@ -313,10 +340,14 @@ func (cmd commandDele) Execute(sess *Session, param string) {
 	err := sess.server.Driver.DeleteFile(&ctx, path)
 	sess.server.notifiers.AfterFileDeleted(&ctx, path, err)
 	if err == nil {
-		sess.writeMessage(250, "File deleted")
+		accessLog.Status = "File deleted"
+		accessLog.StatusCode = 250
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
 		sess.logf("%v", err)
-		sess.writeMessage(550, "File delete failed. ")
+		accessLog.Status = "File delete failed."
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
 }
 
@@ -337,32 +368,37 @@ func (cmd commandEprt) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandEprt) Execute(sess *Session, param string) {
+func (cmd commandEprt) Execute(sess *Session, param string, accessLog *AccessLog) {
 	delim := string(param[0:1])
 	parts := strings.Split(param, delim)
 	addressFamily, err := strconv.Atoi(parts[1])
-	if err != nil {
-		sess.writeMessage(522, "Network protocol not supported, use (1,2)")
-		return
-	}
-	if addressFamily != 1 && addressFamily != 2 {
-		sess.writeMessage(522, "Network protocol not supported, use (1,2)")
+	if err != nil || (addressFamily != 1 && addressFamily != 2) {
+		accessLog.Status = "Network protocol not supported, use (1,2)"
+		accessLog.StatusCode = 522
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
 	host := parts[2]
 	port, err := strconv.Atoi(parts[3])
 	if err != nil {
-		sess.writeMessage(522, "Network protocol not supported, use (1,2)")
+		accessLog.Status = "Network protocol not supported, use (1,2)"
+		accessLog.StatusCode = 522
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	socket, err := newActiveSocket(sess, host, port)
 	if err != nil {
-		sess.writeMessage(425, "Data connection failed")
+		accessLog.Status = "Data connection failed"
+		accessLog.StatusCode = 425
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	sess.dataConn = socket
-	sess.writeMessage(200, "Connection established ("+strconv.Itoa(port)+")")
+
+	accessLog.Status = "Connection established (" + strconv.Itoa(port) + ")"
+	accessLog.StatusCode = 200
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandLprt responds to the LPRT FTP command. It allows the client to
@@ -382,28 +418,24 @@ func (cmd commandLprt) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandLprt) Execute(sess *Session, param string) {
+func (cmd commandLprt) Execute(sess *Session, param string, accessLog *AccessLog) {
 	// No tests for this code yet
 
 	parts := strings.Split(param, ",")
 
 	addressFamily, err := strconv.Atoi(parts[0])
-	if err != nil {
-		sess.writeMessage(522, "Network protocol not supported, use 4")
-		return
-	}
-	if addressFamily != 4 {
-		sess.writeMessage(522, "Network protocol not supported, use 4")
+	if err != nil || addressFamily != 4 {
+		accessLog.Status = "Network protocol not supported, use 4"
+		accessLog.StatusCode = 522
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
 	addressLength, err := strconv.Atoi(parts[1])
-	if err != nil {
-		sess.writeMessage(522, "Network protocol not supported, use 4")
-		return
-	}
-	if addressLength != 4 {
-		sess.writeMessage(522, "Network IP length not supported, use 4")
+	if err != nil || addressLength != 4 {
+		accessLog.Status = "Network protocol not supported, use 4"
+		accessLog.StatusCode = 522
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
@@ -411,7 +443,9 @@ func (cmd commandLprt) Execute(sess *Session, param string) {
 
 	portLength, err := strconv.Atoi(parts[2+addressLength])
 	if err != nil {
-		sess.writeMessage(522, "Network protocol not supported, use 4")
+		accessLog.Status = "Network protocol not supported, use 4"
+		accessLog.StatusCode = 522
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	portAddress := parts[3+addressLength : 3+addressLength+portLength]
@@ -433,11 +467,16 @@ func (cmd commandLprt) Execute(sess *Session, param string) {
 
 	socket, err := newActiveSocket(sess, host, port)
 	if err != nil {
-		sess.writeMessage(425, "Data connection failed")
+		accessLog.Status = "Data connection failed"
+		accessLog.StatusCode = 425
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	sess.dataConn = socket
-	sess.writeMessage(200, "Connection established ("+strconv.Itoa(port)+")")
+
+	accessLog.Status = "Connection established (" + strconv.Itoa(port) + ")"
+	accessLog.StatusCode = 200
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandEpsv responds to the EPSV FTP command. It allows the client to
@@ -457,16 +496,19 @@ func (cmd commandEpsv) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandEpsv) Execute(sess *Session, param string) {
+func (cmd commandEpsv) Execute(sess *Session, param string, accessLog *AccessLog) {
 	socket, err := sess.newPassiveSocket()
 	if err != nil {
 		sess.log(err)
-		sess.writeMessage(425, "Data connection failed")
+		accessLog.Status = "Data connection failed"
+		accessLog.StatusCode = 425
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
-	msg := fmt.Sprintf("Entering Extended Passive Mode (|||%d|)", socket.Port())
-	sess.writeMessage(229, msg)
+	accessLog.Status = fmt.Sprintf("Entering Extended Passive Mode (|||%d|)", socket.Port())
+	accessLog.StatusCode = 229
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandList responds to the LIST FTP command. It allows the client to retrieve
@@ -549,17 +591,22 @@ func list(sess *Session, cmd, p, param string) ([]FileInfo, error) {
 	return files, nil
 }
 
-func (cmd commandList) Execute(sess *Session, param string) {
+func (cmd commandList) Execute(sess *Session, param string, accessLog *AccessLog) {
 	p := sess.buildPath(parseListParam(param))
 
 	files, err := list(sess, "LIST", p, param)
 	if err != nil {
-		sess.writeMessage(550, err.Error())
+		accessLog.Status = err.Error()
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
-	sess.writeMessage(150, "Opening ASCII mode data connection for file list")
-	sess.sendOutofbandData(listFormatter(files).Detailed())
+	accessLog.Status = "Opening ASCII mode data connection for file list"
+	accessLog.StatusCode = 150
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
+
+	sess.sendOutofbandData(listFormatter(files).Detailed(), accessLog)
 }
 
 func parseListParam(param string) (path string) {
@@ -595,7 +642,7 @@ func (cmd commandNlst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandNlst) Execute(sess *Session, param string) {
+func (cmd commandNlst) Execute(sess *Session, param string, accessLog *AccessLog) {
 	var ctx = &Context{
 		Sess:  sess,
 		Cmd:   "NLST",
@@ -605,11 +652,15 @@ func (cmd commandNlst) Execute(sess *Session, param string) {
 	path := sess.buildPath(parseListParam(param))
 	info, err := sess.server.Driver.Stat(ctx, path)
 	if err != nil {
-		sess.writeMessage(550, err.Error())
+		accessLog.Status = err.Error()
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	if !info.IsDir() {
-		sess.writeMessage(550, param+" is not a directory")
+		accessLog.Status = param + " is not a directory"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
@@ -639,11 +690,17 @@ func (cmd commandNlst) Execute(sess *Session, param string) {
 		return nil
 	})
 	if err != nil {
-		sess.writeMessage(550, err.Error())
+		accessLog.Status = err.Error()
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
-	sess.writeMessage(150, "Opening ASCII mode data connection for file list")
-	sess.sendOutofbandData(listFormatter(files).Short())
+
+	accessLog.Status = "Opening ASCII mode data connection for file list"
+	accessLog.StatusCode = 150
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
+
+	sess.sendOutofbandData(listFormatter(files).Short(), accessLog)
 }
 
 // commandMdtm responds to the MDTM FTP command. It allows the client to
@@ -662,7 +719,7 @@ func (cmd commandMdtm) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMdtm) Execute(sess *Session, param string) {
+func (cmd commandMdtm) Execute(sess *Session, param string, accessLog *AccessLog) {
 	path := sess.buildPath(param)
 	stat, err := sess.server.Driver.Stat(&Context{
 		Sess:  sess,
@@ -671,10 +728,13 @@ func (cmd commandMdtm) Execute(sess *Session, param string) {
 		Data:  make(map[string]interface{}),
 	}, path)
 	if err == nil {
-		sess.writeMessage(213, stat.ModTime().Format("20060102150405"))
+		accessLog.Status = stat.ModTime().Format("20060102150405")
+		accessLog.StatusCode = 213
 	} else {
-		sess.writeMessage(450, "File not available")
+		accessLog.Status = "File not available"
+		accessLog.StatusCode = 450
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandMkd responds to the MKD FTP command. It allows the client to create
@@ -693,7 +753,7 @@ func (cmd commandMkd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMkd) Execute(sess *Session, param string) {
+func (cmd commandMkd) Execute(sess *Session, param string, accessLog *AccessLog) {
 	path := sess.buildPath(param)
 	var ctx = Context{
 		Sess:  sess,
@@ -705,10 +765,13 @@ func (cmd commandMkd) Execute(sess *Session, param string) {
 	err := sess.server.Driver.MakeDir(&ctx, path)
 	sess.server.notifiers.AfterDirCreated(&ctx, path, err)
 	if err == nil {
-		sess.writeMessage(257, "Directory created")
+		accessLog.Status = "Directory created"
+		accessLog.StatusCode = 257
 	} else {
-		sess.writeMessage(550, fmt.Sprint("Action not taken: ", err))
+		accessLog.Status = fmt.Sprint("Action not taken: ", err)
+		accessLog.StatusCode = 550
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // cmdMode responds to the MODE FTP command.
@@ -731,12 +794,15 @@ func (cmd commandMode) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMode) Execute(sess *Session, param string) {
+func (cmd commandMode) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if strings.ToUpper(param) == "S" {
-		sess.writeMessage(200, "OK")
+		accessLog.Status = "OK"
+		accessLog.StatusCode = 200
 	} else {
-		sess.writeMessage(504, "MODE is an obsolete command")
+		accessLog.Status = "MODE is an obsolete command"
+		accessLog.StatusCode = 504
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // cmdNoop responds to the NOOP FTP command.
@@ -757,8 +823,10 @@ func (cmd commandNoop) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandNoop) Execute(sess *Session, param string) {
-	sess.writeMessage(200, "OK")
+func (cmd commandNoop) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "OK"
+	accessLog.StatusCode = 200
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandPass respond to the PASS FTP command by asking the driver if the
@@ -777,7 +845,7 @@ func (cmd commandPass) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandPass) Execute(sess *Session, param string) {
+func (cmd commandPass) Execute(sess *Session, param string, accessLog *AccessLog) {
 	auth := sess.server.Auth
 	// If Driver implements Auth then call that instead of the Server version
 	if driverAuth, found := sess.server.Driver.(Auth); found {
@@ -792,17 +860,22 @@ func (cmd commandPass) Execute(sess *Session, param string) {
 	ok, err := auth.CheckPasswd(&ctx, sess.reqUser, param)
 	sess.server.notifiers.AfterUserLogin(&ctx, sess.reqUser, param, ok, err)
 	if err != nil {
-		sess.writeMessage(550, "Checking password error")
+		accessLog.Status = "Checking password error"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
 	if ok {
 		sess.user = sess.reqUser
 		sess.reqUser = ""
-		sess.writeMessage(230, "Password ok, continue")
+		accessLog.Status = "Password ok, continue"
+		accessLog.StatusCode = 230
 	} else {
-		sess.writeMessage(530, "Incorrect password, not logged in")
+		accessLog.Status = "Incorrect password, not logged in"
+		accessLog.StatusCode = 530
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandPasv responds to the PASV FTP command.
@@ -823,17 +896,21 @@ func (cmd commandPasv) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandPasv) Execute(sess *Session, param string) {
+func (cmd commandPasv) Execute(sess *Session, param string, accessLog *AccessLog) {
 	listenIP := sess.passiveListenIP()
 	// TODO: IPv6 for this command is not implemented
 	if strings.HasPrefix(listenIP, "::") {
-		sess.writeMessage(550, "Action not taken")
+		accessLog.Status = "Action not taken"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
 	socket, err := sess.newPassiveSocket()
 	if err != nil {
-		sess.writeMessage(425, "Data connection failed")
+		accessLog.Status = "Data connection failed"
+		accessLog.StatusCode = 425
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
@@ -842,8 +919,10 @@ func (cmd commandPasv) Execute(sess *Session, param string) {
 
 	quads := strings.Split(listenIP, ".")
 	target := fmt.Sprintf("(%s,%s,%s,%s,%d,%d)", quads[0], quads[1], quads[2], quads[3], p1, p2)
-	msg := "Entering Passive Mode " + target
-	sess.writeMessage(227, msg)
+
+	accessLog.Status = "Entering Passive Mode " + target
+	accessLog.StatusCode = 227
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandPort responds to the PORT FTP command.
@@ -864,7 +943,7 @@ func (cmd commandPort) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandPort) Execute(sess *Session, param string) {
+func (cmd commandPort) Execute(sess *Session, param string, accessLog *AccessLog) {
 	nums := strings.Split(param, ",")
 	portOne, _ := strconv.Atoi(nums[4])
 	portTwo, _ := strconv.Atoi(nums[5])
@@ -872,11 +951,15 @@ func (cmd commandPort) Execute(sess *Session, param string) {
 	host := nums[0] + "." + nums[1] + "." + nums[2] + "." + nums[3]
 	socket, err := newActiveSocket(sess, host, port)
 	if err != nil {
-		sess.writeMessage(425, "Data connection failed")
+		accessLog.Status = "Data connection failed"
+		accessLog.StatusCode = 425
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	sess.dataConn = socket
-	sess.writeMessage(200, "Connection established ("+strconv.Itoa(port)+")")
+	accessLog.Status = "Connection established (" + strconv.Itoa(port) + ")"
+	accessLog.StatusCode = 200
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandPwd responds to the PWD FTP command.
@@ -896,8 +979,10 @@ func (cmd commandPwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandPwd) Execute(sess *Session, param string) {
-	sess.writeMessage(257, "\""+sess.curDir+"\" is the current directory")
+func (cmd commandPwd) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "\"" + sess.curDir + "\" is the current directory"
+	accessLog.StatusCode = 257
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // CommandQuit responds to the QUIT FTP command. The client has requested the
@@ -916,8 +1001,10 @@ func (cmd commandQuit) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandQuit) Execute(sess *Session, param string) {
-	sess.writeMessage(221, "Goodbye")
+func (cmd commandQuit) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Goodbye"
+	accessLog.StatusCode = 221
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	sess.Close()
 }
 
@@ -938,7 +1025,7 @@ func (cmd commandRetr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRetr) Execute(sess *Session, param string) {
+func (cmd commandRetr) Execute(sess *Session, param string, accessLog *AccessLog) {
 	path := sess.buildPath(param)
 	if sess.preCommand != "REST" {
 		sess.lastFilePos = -1
@@ -960,15 +1047,21 @@ func (cmd commandRetr) Execute(sess *Session, param string) {
 	size, data, err := sess.server.Driver.GetFile(&ctx, path, readPos)
 	if err == nil {
 		defer data.Close()
-		sess.writeMessage(150, fmt.Sprintf("Data transfer starting %d bytes", size))
-		err = sess.sendOutofBandDataWriter(data)
+		accessLog.Status = fmt.Sprintf("Data transfer starting %d bytes", size)
+		accessLog.StatusCode = 150
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
+		err = sess.sendOutofBandDataWriter(data, accessLog)
 		sess.server.notifiers.AfterFileDownloaded(&ctx, path, size, err)
 		if err != nil {
-			sess.writeMessage(551, "Error reading file")
+			accessLog.Status = "Error reading file"
+			accessLog.StatusCode = 551
+			sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		}
 	} else {
 		sess.server.notifiers.AfterFileDownloaded(&ctx, path, size, err)
-		sess.writeMessage(551, "File not available")
+		accessLog.Status = "File not available"
+		accessLog.StatusCode = 551
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
 }
 
@@ -986,15 +1079,19 @@ func (cmd commandRest) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRest) Execute(sess *Session, param string) {
+func (cmd commandRest) Execute(sess *Session, param string, accessLog *AccessLog) {
 	var err error
 	sess.lastFilePos, err = strconv.ParseInt(param, 10, 64)
 	if err != nil {
-		sess.writeMessage(551, "File not available")
+		accessLog.Status = "File not available"
+		accessLog.StatusCode = 551
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
-	sess.writeMessage(350, fmt.Sprint("Start transfer from ", sess.lastFilePos))
+	accessLog.Status = fmt.Sprint("Start transfer from ", sess.lastFilePos)
+	accessLog.StatusCode = 350
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandRnfr responds to the RNFR FTP command. It's the first of two commands
@@ -1013,7 +1110,7 @@ func (cmd commandRnfr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnfr) Execute(sess *Session, param string) {
+func (cmd commandRnfr) Execute(sess *Session, param string, accessLog *AccessLog) {
 	sess.renameFrom = ""
 	p := sess.buildPath(param)
 	if _, err := sess.server.Driver.Stat(&Context{
@@ -1022,11 +1119,15 @@ func (cmd commandRnfr) Execute(sess *Session, param string) {
 		Param: param,
 		Data:  make(map[string]interface{}),
 	}, p); err != nil {
-		sess.writeMessage(550, fmt.Sprint("Action not taken: ", err))
+		accessLog.Status = fmt.Sprint("Action not taken: ", err)
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 	sess.renameFrom = p
-	sess.writeMessage(350, "Requested file action pending further information.")
+	accessLog.Status = "Requested file action pending further information."
+	accessLog.StatusCode = 350
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // cmdRnto responds to the RNTO FTP command. It's the second of two commands
@@ -1045,7 +1146,7 @@ func (cmd commandRnto) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnto) Execute(sess *Session, param string) {
+func (cmd commandRnto) Execute(sess *Session, param string, accessLog *AccessLog) {
 	toPath := sess.buildPath(param)
 	err := sess.server.Driver.Rename(&Context{
 		Sess:  sess,
@@ -1058,10 +1159,13 @@ func (cmd commandRnto) Execute(sess *Session, param string) {
 	}()
 
 	if err == nil {
-		sess.writeMessage(250, "File renamed")
+		accessLog.Status = "File renamed"
+		accessLog.StatusCode = 250
 	} else {
-		sess.writeMessage(550, fmt.Sprint("Action not taken: ", err))
+		accessLog.Status = fmt.Sprint("Action not taken: ", err)
+		accessLog.StatusCode = 550
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // cmdRmd responds to the RMD FTP command. It allows the client to delete a
@@ -1080,8 +1184,8 @@ func (cmd commandRmd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRmd) Execute(sess *Session, param string) {
-	executeRmd("RMD", sess, param)
+func (cmd commandRmd) Execute(sess *Session, param string, accessLog *AccessLog) {
+	executeRmd("RMD", sess, param, accessLog)
 }
 
 // cmdXRmd responds to the RMD FTP command. It allows the client to delete a
@@ -1100,11 +1204,11 @@ func (cmd commandXRmd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandXRmd) Execute(sess *Session, param string) {
-	executeRmd("XRMD", sess, param)
+func (cmd commandXRmd) Execute(sess *Session, param string, accessLog *AccessLog) {
+	executeRmd("XRMD", sess, param, accessLog)
 }
 
-func executeRmd(cmd string, sess *Session, param string) {
+func executeRmd(cmd string, sess *Session, param string, accessLog *AccessLog) {
 	p := sess.buildPath(param)
 	var ctx = Context{
 		Sess:  sess,
@@ -1113,7 +1217,9 @@ func executeRmd(cmd string, sess *Session, param string) {
 		Data:  make(map[string]interface{}),
 	}
 	if param == "/" || param == "" {
-		sess.writeMessage(550, "Directory / cannot be deleted")
+		accessLog.Status = "Directory / cannot be deleted"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
@@ -1126,10 +1232,13 @@ func executeRmd(cmd string, sess *Session, param string) {
 	}
 	sess.server.notifiers.AfterDirDeleted(&ctx, p, err)
 	if err == nil {
-		sess.writeMessage(250, "Directory deleted")
+		accessLog.Status = "Directory deleted"
+		accessLog.StatusCode = 250
 	} else {
-		sess.writeMessage(550, fmt.Sprint("Directory delete failed: ", err))
+		accessLog.Status = fmt.Sprint("Directory delete failed: ", err)
+		accessLog.StatusCode = 550
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandAdat struct{}
@@ -1146,8 +1255,10 @@ func (cmd commandAdat) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandAdat) Execute(sess *Session, param string) {
-	sess.writeMessage(550, "Action not taken")
+func (cmd commandAdat) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Action not taken"
+	accessLog.StatusCode = 550
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandAuth struct{}
@@ -1164,15 +1275,19 @@ func (cmd commandAuth) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandAuth) Execute(sess *Session, param string) {
+func (cmd commandAuth) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if param == "TLS" && sess.server.tlsConfig != nil {
-		sess.writeMessage(234, "AUTH command OK")
+		accessLog.Status = "AUTH command OK"
+		accessLog.StatusCode = 234
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		err := sess.upgradeToTLS()
 		if err != nil {
 			sess.logf("Error upgrading connection to TLS %v", err.Error())
 		}
 	} else {
-		sess.writeMessage(550, "Action not taken")
+		accessLog.Status = "Action not taken"
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	}
 }
 
@@ -1190,8 +1305,10 @@ func (cmd commandCcc) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCcc) Execute(sess *Session, param string) {
-	sess.writeMessage(550, "Action not taken")
+func (cmd commandCcc) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Action not taken"
+	accessLog.StatusCode = 550
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandEnc struct{}
@@ -1208,8 +1325,10 @@ func (cmd commandEnc) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandEnc) Execute(sess *Session, param string) {
-	sess.writeMessage(550, "Action not taken")
+func (cmd commandEnc) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Action not taken"
+	accessLog.StatusCode = 550
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandMic struct{}
@@ -1226,8 +1345,10 @@ func (cmd commandMic) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMic) Execute(sess *Session, param string) {
-	sess.writeMessage(550, "Action not taken")
+func (cmd commandMic) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Action not taken"
+	accessLog.StatusCode = 550
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandMLSD struct{}
@@ -1268,7 +1389,7 @@ func toMLSDFormat(files []FileInfo) []byte {
 	return buf.Bytes()
 }
 
-func (cmd commandMLSD) Execute(sess *Session, param string) {
+func (cmd commandMLSD) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if param == "" {
 		param = sess.curDir
 	}
@@ -1276,12 +1397,17 @@ func (cmd commandMLSD) Execute(sess *Session, param string) {
 
 	files, err := list(sess, "MLSD", p, param)
 	if err != nil {
-		sess.writeMessage(550, err.Error())
+		accessLog.Status = err.Error()
+		accessLog.StatusCode = 550
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		return
 	}
 
-	sess.writeMessage(150, "Opening ASCII mode data connection for file list")
-	sess.sendOutofbandData(toMLSDFormat(files))
+	accessLog.Status = "Opening ASCII mode data connection for file list"
+	accessLog.StatusCode = 150
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
+
+	sess.sendOutofbandData(toMLSDFormat(files), accessLog)
 }
 
 type commandPbsz struct{}
@@ -1298,12 +1424,15 @@ func (cmd commandPbsz) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandPbsz) Execute(sess *Session, param string) {
+func (cmd commandPbsz) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if sess.tls && param == "0" {
-		sess.writeMessage(200, "OK")
+		accessLog.Status = "OK"
+		accessLog.StatusCode = 200
 	} else {
-		sess.writeMessage(550, "Action not taken")
+		accessLog.Status = "Action not taken"
+		accessLog.StatusCode = 550
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandProt struct{}
@@ -1320,14 +1449,18 @@ func (cmd commandProt) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandProt) Execute(sess *Session, param string) {
+func (cmd commandProt) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if sess.tls && param == "P" {
-		sess.writeMessage(200, "OK")
+		accessLog.Status = "OK"
+		accessLog.StatusCode = 200
 	} else if sess.tls {
-		sess.writeMessage(536, "Only P level is supported")
+		accessLog.Status = "Only P level is supported"
+		accessLog.StatusCode = 536
 	} else {
-		sess.writeMessage(550, "Action not taken")
+		accessLog.Status = "Action not taken"
+		accessLog.StatusCode = 550
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 type commandConf struct{}
@@ -1344,8 +1477,10 @@ func (cmd commandConf) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandConf) Execute(sess *Session, param string) {
-	sess.writeMessage(550, "Action not taken")
+func (cmd commandConf) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "Action not taken"
+	accessLog.StatusCode = 550
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandSize responds to the SIZE FTP command. It returns the size of the
@@ -1364,7 +1499,7 @@ func (cmd commandSize) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSize) Execute(sess *Session, param string) {
+func (cmd commandSize) Execute(sess *Session, param string, accessLog *AccessLog) {
 	path := sess.buildPath(param)
 	stat, err := sess.server.Driver.Stat(&Context{
 		Sess:  sess,
@@ -1374,10 +1509,13 @@ func (cmd commandSize) Execute(sess *Session, param string) {
 	}, path)
 	if err != nil {
 		log.Printf("Size: error(%s)", err)
-		sess.writeMessage(450, fmt.Sprintf("path %s not found", param))
+		accessLog.Status = fmt.Sprintf("path %s not found", param)
+		accessLog.StatusCode = 450
 	} else {
-		sess.writeMessage(213, strconv.Itoa(int(stat.Size())))
+		accessLog.Status = strconv.Itoa(int(stat.Size()))
+		accessLog.StatusCode = 213
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandStat responds to the STAT FTP command. It returns the stat of the
@@ -1396,7 +1534,7 @@ func (cmd commandStat) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStat) Execute(sess *Session, param string) {
+func (cmd commandStat) Execute(sess *Session, param string, accessLog *AccessLog) {
 	// system stat
 	if param == "" {
 		sess.writeMessage(211, fmt.Sprintf("%s FTP server status:\nVersion %s"+
@@ -1405,7 +1543,11 @@ func (cmd commandStat) Execute(sess *Session, param string) {
 			"TYPE: ASCII, FORM: Nonprint; STRUcture: File; transfer MODE: Stream\n"+
 			"No data connection", sess.PublicIP(), version, sess.PublicIP(),
 			version, sess.LoginUser()))
-		sess.writeMessage(211, "End of status")
+
+		accessLog.Status = "End of status"
+		accessLog.StatusCode = 211
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
+
 		return
 	}
 
@@ -1421,7 +1563,9 @@ func (cmd commandStat) Execute(sess *Session, param string) {
 	stat, err := sess.server.Driver.Stat(&ctx, path)
 	if err != nil {
 		log.Printf("Size: error(%s)", err)
-		sess.writeMessage(450, fmt.Sprintf("path %s not found", path))
+		accessLog.Status = fmt.Sprintf("path %s not found", path)
+		accessLog.StatusCode = 450
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
 		var files []FileInfo
 		if stat.IsDir() {
@@ -1434,20 +1578,28 @@ func (cmd commandStat) Execute(sess *Session, param string) {
 				return nil
 			})
 			if err != nil {
-				sess.writeMessage(550, err.Error())
+				accessLog.Status = err.Error()
+				accessLog.StatusCode = 550
+				sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 				return
 			}
-			sess.writeMessage(213, "Opening ASCII mode data connection for file list")
+			accessLog.Status = "Opening ASCII mode data connection for file list"
+			accessLog.StatusCode = 213
+			sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		} else {
 			info, err := convertFileInfo(sess, stat, path)
 			if err != nil {
-				sess.writeMessage(550, err.Error())
+				accessLog.Status = err.Error()
+				accessLog.StatusCode = 550
+				sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 				return
 			}
 			files = append(files, info)
-			sess.writeMessage(212, "Opening ASCII mode data connection for file list")
+			accessLog.Status = "Opening ASCII mode data connection for file list"
+			accessLog.StatusCode = 212
+			sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		}
-		sess.sendOutofbandData(listFormatter(files).Detailed())
+		sess.sendOutofbandData(listFormatter(files).Detailed(), accessLog)
 	}
 }
 
@@ -1467,9 +1619,11 @@ func (cmd commandStor) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStor) Execute(sess *Session, param string) {
+func (cmd commandStor) Execute(sess *Session, param string, accessLog *AccessLog) {
 	targetPath := sess.buildPath(param)
-	sess.writeMessage(150, "Data transfer starting")
+	accessLog.Status = "Data transfer starting"
+	accessLog.StatusCode = 150
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 
 	if sess.preCommand != "REST" {
 		sess.lastFilePos = -1
@@ -1489,11 +1643,13 @@ func (cmd commandStor) Execute(sess *Session, param string) {
 	size, err := sess.server.Driver.PutFile(&ctx, targetPath, sess.dataConn, sess.lastFilePos)
 	sess.server.notifiers.AfterFilePut(&ctx, targetPath, size, err)
 	if err == nil {
-		msg := fmt.Sprintf("OK, received %d bytes", size)
-		sess.writeMessage(226, msg)
+		accessLog.Status = fmt.Sprintf("OK, received %d bytes", size)
+		accessLog.StatusCode = 226
 	} else {
-		sess.writeMessage(450, fmt.Sprint("error during transfer: ", err))
+		accessLog.Status = fmt.Sprint("error during transfer: ", err)
+		accessLog.StatusCode = 450
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandStru responds to the STRU FTP command.
@@ -1519,12 +1675,15 @@ func (cmd commandStru) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStru) Execute(sess *Session, param string) {
+func (cmd commandStru) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if strings.ToUpper(param) == "F" {
-		sess.writeMessage(200, "OK")
+		accessLog.Status = "OK"
+		accessLog.StatusCode = 200
 	} else {
-		sess.writeMessage(504, "STRU is an obsolete command")
+		accessLog.Status = "STRU is an obsolete command"
+		accessLog.StatusCode = 504
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandSyst responds to the SYST FTP command by providing a canned response.
@@ -1542,8 +1701,10 @@ func (cmd commandSyst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSyst) Execute(sess *Session, param string) {
-	sess.writeMessage(215, "UNIX Type: L8")
+func (cmd commandSyst) Execute(sess *Session, param string, accessLog *AccessLog) {
+	accessLog.Status = "UNIX Type: L8"
+	accessLog.StatusCode = 215
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandType responds to the TYPE FTP command.
@@ -1570,14 +1731,18 @@ func (cmd commandType) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandType) Execute(sess *Session, param string) {
+func (cmd commandType) Execute(sess *Session, param string, accessLog *AccessLog) {
 	if strings.ToUpper(param) == "A" {
-		sess.writeMessage(200, "Type set to ASCII")
+		accessLog.Status = "Type set to ASCII"
+		accessLog.StatusCode = 200
 	} else if strings.ToUpper(param) == "I" {
-		sess.writeMessage(200, "Type set to binary")
+		accessLog.Status = "Type set to binary"
+		accessLog.StatusCode = 200
 	} else {
-		sess.writeMessage(500, "Invalid type")
+		accessLog.Status = "Invalid type"
+		accessLog.StatusCode = 500
 	}
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
 // commandUser responds to the USER FTP command by asking for the password
@@ -1595,7 +1760,7 @@ func (cmd commandUser) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandUser) Execute(sess *Session, param string) {
+func (cmd commandUser) Execute(sess *Session, param string, accessLog *AccessLog) {
 	sess.reqUser = param
 	sess.server.notifiers.BeforeLoginUser(&Context{
 		Sess:  sess,
@@ -1603,5 +1768,8 @@ func (cmd commandUser) Execute(sess *Session, param string) {
 		Param: param,
 		Data:  make(map[string]interface{}),
 	}, sess.reqUser)
-	sess.writeMessage(331, "User name ok, password required")
+
+	accessLog.Status = "User name ok, password required"
+	accessLog.StatusCode = 331
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }

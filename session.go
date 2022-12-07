@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -198,6 +199,7 @@ func (sess *Session) receiveLine(line string) {
 		}
 	}()
 
+	start := time.Now().In(time.Local)
 	command, param := sess.parseLine(line)
 	sess.server.Logger.PrintCommand(sess.id, command, param)
 
@@ -206,19 +208,49 @@ func (sess *Session) receiveLine(line string) {
 		theCmd   = strings.ToUpper(command)
 		cmdObj   = commands[theCmd]
 	)
+
+	accessLog := AccessLog{
+		Timestamp:     start,
+		RemoteAddress: sess.RemoteAddr().String(),
+		User:          sess.user,
+		Directory:     sess.curDir,
+		Method:        theCmd,
+		Name:          param,
+	}
+
 	if cmdObj == nil {
-		sess.writeMessage(500, "Command not found")
+		accessLog.Status = "Command not found"
+		accessLog.StatusCode = 500
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
+		if sess.server.Report != nil {
+			accessLog.Elapsed = time.Since(start)
+			sess.server.Report(&accessLog)
+		}
 		return
 	}
+
 	if cmdObj.RequireParam() && param == "" {
-		sess.writeMessage(553, "action aborted, required param missing")
+		accessLog.Status = "action aborted, required param missing"
+		accessLog.StatusCode = 553
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else if sess.server.Options.ForceTLS && !sess.tls && !(cmdObj == commands["AUTH"] && param == "TLS") {
-		sess.writeMessage(534, "Request denied for policy reasons. AUTH TLS required.")
+		accessLog.Status = "Request denied for policy reasons. AUTH TLS required."
+		accessLog.StatusCode = 534
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else if cmdObj.RequireAuth() && sess.user == "" {
-		sess.writeMessage(530, "not logged in")
+		accessLog.Status = "not logged in"
+		accessLog.StatusCode = 530
+		sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	} else {
-		cmdObj.Execute(sess, param)
+		// execute commands call writeMessage where needed
+		cmdObj.Execute(sess, param, &accessLog)
 		sess.preCommand = theCmd
+	}
+
+	if sess.server.Report != nil {
+		accessLog.SessionID = sess.id
+		accessLog.Elapsed = time.Since(start)
+		sess.server.Report(&accessLog)
 	}
 }
 
@@ -286,26 +318,32 @@ func (sess *Session) buildPath(filename string) (fullPath string) {
 
 // sendOutofbandData will send a string to the client via the currently open
 // data socket. Assumes the socket is open and ready to be used.
-func (sess *Session) sendOutofbandData(data []byte) {
+func (sess *Session) sendOutofbandData(data []byte, accessLog *AccessLog) {
 	bytes := len(data)
 	if sess.dataConn != nil {
 		_, _ = sess.dataConn.Write(data)
 		sess.dataConn.Close()
 		sess.dataConn = nil
 	}
-	message := "Closing data connection, sent " + strconv.Itoa(bytes) + " bytes"
-	sess.writeMessage(226, message)
+
+	accessLog.Status = "Closing data connection, sent " + strconv.Itoa(bytes) + " bytes"
+	accessLog.StatusCode = 226
+	accessLog.Size = len(data)
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 }
 
-func (sess *Session) sendOutofBandDataWriter(data io.ReadCloser) error {
+func (sess *Session) sendOutofBandDataWriter(data io.ReadCloser, accessLog *AccessLog) error {
 	bytes, err := io.Copy(sess.dataConn, data)
 	if err != nil {
 		sess.dataConn.Close()
 		sess.dataConn = nil
 		return err
 	}
-	message := "Closing data connection, sent " + strconv.Itoa(int(bytes)) + " bytes"
-	sess.writeMessage(226, message)
+
+	accessLog.Status = "Closing data connection, sent " + strconv.Itoa(int(bytes)) + " bytes"
+	accessLog.StatusCode = 226
+	accessLog.Size = int(bytes)
+	sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 	sess.dataConn.Close()
 	sess.dataConn = nil
 
