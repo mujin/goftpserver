@@ -515,24 +515,24 @@ func (cmd commandList) RequireAuth() bool {
 	return true
 }
 
-func convertFileInfo(sess *Session, f os.FileInfo, p string) (FileInfo, error) {
-	mode, err := sess.server.Perm.GetMode(p)
+func convertFileInfo(ctx *Context, info os.FileInfo, path string) (FileInfo, error) {
+	mode, err := ctx.Sess.server.Perm.GetMode(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	if f.IsDir() {
+	if info.IsDir() {
 		mode |= os.ModeDir
 	}
-	owner, err := sess.server.Perm.GetOwner(p)
+	owner, err := ctx.Sess.server.Perm.GetOwner(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	group, err := sess.server.Perm.GetGroup(p)
+	group, err := ctx.Sess.server.Perm.GetGroup(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	return &fileInfo{
-		FileInfo: f,
+		FileInfo: info,
 		mode:     mode,
 		owner:    owner,
 		group:    group,
@@ -559,7 +559,7 @@ func list(sess *Session, cmd, p, param string) ([]FileInfo, error) {
 	var files []FileInfo
 	if info.IsDir() {
 		err = sess.server.Driver.ListDir(ctx, p, func(f os.FileInfo) error {
-			info, err := convertFileInfo(sess, f, path.Join(p, f.Name()))
+			info, err := convertFileInfo(ctx, f, path.Join(p, f.Name()))
 			if err != nil {
 				return err
 			}
@@ -570,7 +570,7 @@ func list(sess *Session, cmd, p, param string) ([]FileInfo, error) {
 			return nil, err
 		}
 	} else {
-		newInfo, err := convertFileInfo(sess, info, p)
+		newInfo, err := convertFileInfo(ctx, info, p)
 		if err != nil {
 			return nil, err
 		}
@@ -654,18 +654,18 @@ func (cmd commandNlst) Execute(sess *Session, param string, accessLog *AccessLog
 
 	var files []FileInfo
 	err = sess.server.Driver.ListDir(ctx, path, func(f os.FileInfo) error {
-		mode, err := sess.server.Perm.GetMode(path)
+		mode, err := sess.server.Perm.GetMode(ctx, path)
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			mode |= os.ModeDir
 		}
-		owner, err := sess.server.Perm.GetOwner(path)
+		owner, err := sess.server.Perm.GetOwner(ctx, path)
 		if err != nil {
 			return err
 		}
-		group, err := sess.server.Perm.GetGroup(path)
+		group, err := sess.server.Perm.GetGroup(ctx, path)
 		if err != nil {
 			return err
 		}
@@ -1558,7 +1558,7 @@ func (cmd commandStat) Execute(sess *Session, param string, accessLog *AccessLog
 		var files []FileInfo
 		if stat.IsDir() {
 			err = sess.server.Driver.ListDir(&ctx, path, func(f os.FileInfo) error {
-				info, err := convertFileInfo(sess, f, filepath.Join(path, f.Name()))
+				info, err := convertFileInfo(&ctx, f, filepath.Join(path, f.Name()))
 				if err != nil {
 					return err
 				}
@@ -1575,7 +1575,7 @@ func (cmd commandStat) Execute(sess *Session, param string, accessLog *AccessLog
 			accessLog.StatusCode = 213
 			sess.writeMessage(accessLog.StatusCode, accessLog.Status)
 		} else {
-			info, err := convertFileInfo(sess, stat, path)
+			info, err := convertFileInfo(&ctx, stat, path)
 			if err != nil {
 				accessLog.Status = err.Error()
 				accessLog.StatusCode = 550
@@ -1697,14 +1697,14 @@ func (cmd commandSyst) Execute(sess *Session, param string, accessLog *AccessLog
 
 // commandType responds to the TYPE FTP command.
 //
-//  like the MODE and STRU commands, TYPE dates back to a time when the FTP
-//  protocol was more aware of the content of the files it was transferring, and
-//  would sometimes be expected to translate things like EOL markers on the fly.
+//	like the MODE and STRU commands, TYPE dates back to a time when the FTP
+//	protocol was more aware of the content of the files it was transferring, and
+//	would sometimes be expected to translate things like EOL markers on the fly.
 //
-//  Valid options were A(SCII), I(mage), E(BCDIC) or LN (for local type). Since
-//  we plan to just accept bytes from the client unchanged, I think Image mode is
-//  adequate. The RFC requires we accept ASCII mode however, so accept it, but
-//  ignore it.
+//	Valid options were A(SCII), I(mage), E(BCDIC) or LN (for local type). Since
+//	we plan to just accept bytes from the client unchanged, I think Image mode is
+//	adequate. The RFC requires we accept ASCII mode however, so accept it, but
+//	ignore it.
 type commandType struct{}
 
 func (cmd commandType) IsExtend() bool {
